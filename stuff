@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniGPT — Browser LM Trainer</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=IBM+Plex+Mono:wght@300;400;700&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#03060f;
+  --panel:#070d1a;
+  --panel2:#0b1425;
+  --border:#152035;
+  --border2:#1e3050;
+  --accent:#00e5ff;
+  --accent2:#00ff88;
+  --accent3:#7c3aed;
+  --text:#b8cce0;
+  --text2:#6a8aaa;
+  --danger:#ff3355;
+  --warn:#ffaa00;
+  --font-title:'Orbitron',monospace;
+  --font-mono:'IBM Plex Mono',monospace;
+  --font-ui:'IBM Plex Sans',sans-serif;
+}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:13px;display:flex;flex-direction:column}
+
+/* SCANLINE OVERLAY */
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.08) 2px,rgba(0,0,0,.08) 4px);pointer-events:none;z-index:999}
+
+/* HEADER */
+#header{display:flex;align-items:center;gap:16px;padding:10px 20px;border-bottom:1px solid var(--border2);background:var(--panel);flex-shrink:0}
+#logo{font-family:var(--font-title);font-size:18px;font-weight:900;color:var(--accent);letter-spacing:2px;text-shadow:0 0 20px var(--accent);white-space:nowrap}
+#logo span{color:var(--accent2)}
+.hstat{display:flex;flex-direction:column;align-items:center;padding:4px 16px;border-left:1px solid var(--border2)}
+.hstat-val{font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent);text-shadow:0 0 10px var(--accent)}
+.hstat-lbl{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
+#backend-badge{margin-left:auto;font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:4px;border:1px solid var(--border2);color:var(--text2)}
+#backend-badge.webgpu{border-color:var(--accent2);color:var(--accent2)}
+#backend-badge.webgl{border-color:var(--accent);color:var(--accent)}
+
+/* MAIN LAYOUT */
+#main{display:grid;grid-template-columns:300px 1fr 300px;gap:0;flex:1;overflow:hidden}
+.col{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
+.col:last-child{border-right:none}
+
+/* PANELS */
+.panel{background:var(--panel);border-bottom:1px solid var(--border);padding:12px 14px;flex-shrink:0}
+.panel.flex1{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.panel-title{font-family:var(--font-mono);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.panel-title::before{content:'▸';color:var(--accent)}
+
+/* PRESETS */
+.preset-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:10px}
+.preset-btn{background:var(--panel2);border:1px solid var(--border2);border-radius:4px;padding:5px 2px;color:var(--text2);font-family:var(--font-mono);font-size:10px;cursor:pointer;text-align:center;transition:all .15s}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+.preset-btn.active{background:rgba(0,229,255,.08);border-color:var(--accent);color:var(--accent);text-shadow:0 0 8px var(--accent)}
+.preset-btn .pname{font-weight:700;display:block}
+.preset-btn .pparams{font-size:9px;opacity:.7}
+
+/* CONFIG SLIDERS */
+.cfg-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cfg-row label{font-family:var(--font-mono);font-size:10px;color:var(--text2);width:80px;flex-shrink:0}
+.cfg-row input[type=range]{flex:1;accent-color:var(--accent);height:3px}
+.cfg-row .cfg-val{font-family:var(--font-mono);font-size:11px;color:var(--accent);width:48px;text-align:right;flex-shrink:0}
+
+/* TEXTAREA */
+textarea{width:100%;background:var(--panel2);border:1px solid var(--border2);border-radius:4px;color:var(--text);font-family:var(--font-mono);font-size:11px;padding:8px;resize:none;line-height:1.5;outline:none;transition:border-color .2s}
+textarea:focus{border-color:var(--accent)}
+#train-data{flex:1}
+.data-stats{font-family:var(--font-mono);font-size:10px;color:var(--text2);margin-top:5px;display:flex;gap:12px}
+.data-stats span{color:var(--accent)}
+
+/* CONTROLS */
+.ctrl-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.ctrl-row label{font-family:var(--font-mono);font-size:10px;color:var(--text2);width:80px}
+.ctrl-row input[type=range]{flex:1;accent-color:var(--accent2)}
+.ctrl-row .cval{font-family:var(--font-mono);font-size:11px;color:var(--accent2);width:60px;text-align:right}
+
+/* BUTTONS */
+.btn{padding:8px 20px;border-radius:4px;border:1px solid;font-family:var(--font-mono);font-size:12px;cursor:pointer;font-weight:700;letter-spacing:1px;transition:all .15s;text-transform:uppercase}
+.btn-start{background:rgba(0,255,136,.1);border-color:var(--accent2);color:var(--accent2)}
+.btn-start:hover{background:rgba(0,255,136,.2);box-shadow:0 0 12px rgba(0,255,136,.3)}
+.btn-start.running{background:rgba(255,51,85,.1);border-color:var(--danger);color:var(--danger)}
+.btn-stop{background:rgba(255,51,85,.1);border-color:var(--danger);color:var(--danger)}
+.btn-secondary{background:var(--panel2);border-color:var(--border2);color:var(--text2);font-size:11px;padding:6px 14px}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+
+/* CHART */
+#chart-wrap{flex:1;position:relative;min-height:0}
+#lossChart{width:100%!important;height:100%!important}
+
+/* PROGRESS */
+#train-progress{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin:8px 0}
+#train-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));width:0%;transition:width .3s;border-radius:2px}
+
+/* LOG */
+#log-wrap{flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:11px;line-height:1.8;padding:2px}
+.log-line{padding:1px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.log-line.info{color:var(--text2)}
+.log-line.ok{color:var(--accent2)}
+.log-line.warn{color:var(--warn)}
+.log-line.err{color:var(--danger)}
+.log-line .ts{color:var(--border2);margin-right:6px}
+
+/* GENERATE */
+#gen-prompt{height:60px;margin-bottom:8px}
+#gen-out{flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:12px;line-height:1.7;color:var(--accent2);white-space:pre-wrap;padding:8px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;word-break:break-all}
+.gen-controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.gen-controls label{font-family:var(--font-mono);font-size:10px;color:var(--text2)}
+.gen-controls input[type=range]{width:80px;accent-color:var(--accent)}
+.gen-controls .gval{font-family:var(--font-mono);font-size:11px;color:var(--accent);width:36px}
+
+/* SCROLLBAR */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--panel)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* GLOW PULSE */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.pulse{animation:pulse 1.5s infinite}
+
+/* INIT overlay */
+#init-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;gap:20px}
+#init-overlay .il{font-family:var(--font-title);font-size:32px;font-weight:900;color:var(--accent);text-shadow:0 0 40px var(--accent);letter-spacing:4px}
+#init-overlay .is{font-family:var(--font-mono);color:var(--text2);font-size:13px}
+#init-bar{width:300px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+#init-fill{height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div id="init-overlay">
+  <div class="il">MINI<span style="color:var(--accent2)">GPT</span></div>
+  <div class="is" id="init-msg">Loading TensorFlow.js…</div>
+  <div id="init-bar"><div id="init-fill"></div></div>
+</div>
+
+<div id="header" style="display:none">
+  <div id="logo">MINI<span>GPT</span></div>
+  <div class="hstat"><div class="hstat-val" id="stat-params">0</div><div class="hstat-lbl">parameters</div></div>
+  <div class="hstat"><div class="hstat-val" id="stat-step">0</div><div class="hstat-lbl">steps</div></div>
+  <div class="hstat"><div class="hstat-val" id="stat-loss">—</div><div class="hstat-lbl">loss</div></div>
+  <div class="hstat"><div class="hstat-val" id="stat-tps">0</div><div class="hstat-lbl">tok/s</div></div>
+  <div class="hstat"><div class="hstat-val" id="stat-lr">—</div><div class="hstat-lbl">lr</div></div>
+  <div id="backend-badge">BACKEND</div>
+</div>
+
+<div id="main" style="display:none">
+
+  <!-- LEFT COL: Config + Data -->
+  <div class="col">
+    <div class="panel">
+      <div class="panel-title">Model Architecture</div>
+      <div class="preset-grid">
+        <button class="preset-btn" data-p="micro"><span class="pname">MICRO</span><span class="pparams">~1M</span></button>
+        <button class="preset-btn active" data-p="small"><span class="pname">SMALL</span><span class="pparams">~5M</span></button>
+        <button class="preset-btn" data-p="medium"><span class="pname">MED</span><span class="pparams">~20M</span></button>
+        <button class="preset-btn" data-p="large"><span class="pname">LARGE</span><span class="pparams">~38M</span></button>
+        <button class="preset-btn" data-p="xlarge"><span class="pname">70M</span><span class="pparams">~70M</span></button>
+      </div>
+      <div class="cfg-row"><label>Layers</label><input type="range" id="cfg-layers" min="2" max="16" value="6" step="1"><div class="cfg-val" id="val-layers">6</div></div>
+      <div class="cfg-row"><label>d_model</label><input type="range" id="cfg-dmodel" min="64" max="768" value="256" step="64"><div class="cfg-val" id="val-dmodel">256</div></div>
+      <div class="cfg-row"><label>Heads</label><input type="range" id="cfg-heads" min="2" max="16" value="8" step="2"><div class="cfg-val" id="val-heads">8</div></div>
+      <div class="cfg-row"><label>FF Dim</label><input type="range" id="cfg-ffdim" min="128" max="3072" value="1024" step="128"><div class="cfg-val" id="val-ffdim">1024</div></div>
+      <div class="cfg-row"><label>Seq Len</label><input type="range" id="cfg-seqlen" min="64" max="512" value="256" step="64"><div class="cfg-val" id="val-seqlen">256</div></div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn btn-secondary" id="btn-build">⚡ Build Model</button>
+        <button class="btn btn-secondary" id="btn-reset">↺ Reset</button>
+      </div>
+    </div>
+
+    <div class="panel flex1" style="padding-bottom:14px">
+      <div class="panel-title">Training Data</div>
+      <textarea id="train-data" placeholder="Paste your training text here…
+
+The model will learn to generate text in the same style using BPE word-level tokenization. More data = better results. 500,000+ characters recommended for coherent output.
+
+Try: books from Project Gutenberg, Wikipedia articles, story collections — the more the better!"></textarea>
+      <div class="data-stats">
+        <div>chars: <span id="ds-chars">0</span></div>
+        <div>tokens: <span id="ds-tokens">0</span></div>
+        <div>vocab: <span id="ds-vocab">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER COL: Training + Chart + Log -->
+  <div class="col" style="border-right:1px solid var(--border)">
+    <div class="panel">
+      <div class="panel-title">Training Hyperparameters</div>
+      <div class="ctrl-row"><label>Learn Rate</label><input type="range" id="ctrl-lr" min="-5" max="-2" value="-3.3" step="0.1"><div class="cval" id="val-lr">5e-4</div></div>
+      <div class="ctrl-row"><label>Batch Size</label><input type="range" id="ctrl-bs" min="1" max="8" value="4" step="1"><div class="cval" id="val-bs">4</div></div>
+      <div class="ctrl-row"><label>Warmup</label><input type="range" id="ctrl-warmup" min="0" max="500" value="100" step="10"><div class="cval" id="val-warmup">100</div></div>
+      <div class="ctrl-row"><label>Grad Clip</label><input type="range" id="ctrl-clip" min="0.5" max="5" value="1" step="0.5"><div class="cval" id="val-clip">1.0</div></div>
+      <div id="train-progress"><div id="train-progress-bar"></div></div>
+      <div class="btn-row">
+        <button class="btn btn-start" id="btn-train">▶ START TRAINING</button>
+        <button class="btn btn-secondary" id="btn-step">Step ×1</button>
+        <button class="btn btn-secondary" id="btn-step10">Step ×10</button>
+      </div>
+    </div>
+
+    <div class="panel flex1">
+      <div class="panel-title">Loss Curve</div>
+      <div id="chart-wrap">
+        <canvas id="lossChart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel flex1" style="max-height:180px">
+      <div class="panel-title">Training Log</div>
+      <div id="log-wrap"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COL: Generate + Save/Load -->
+  <div class="col">
+    <div class="panel">
+      <div class="panel-title">Generate Text</div>
+      <textarea id="gen-prompt" placeholder="Seed text (leave empty for random)…"></textarea>
+      <div class="gen-controls">
+        <label>Temp</label>
+        <input type="range" id="gen-temp" min="0.1" max="2" value="0.8" step="0.05">
+        <div class="gval" id="val-temp">0.8</div>
+        <label>Tokens</label>
+        <input type="range" id="gen-len" min="50" max="1000" value="200" step="50">
+        <div class="gval" id="val-glen">200</div>
+      </div>
+      <div class="btn-row" style="margin-bottom:8px">
+        <button class="btn btn-secondary" id="btn-gen">⚡ Generate</button>
+        <button class="btn btn-secondary" id="btn-gen-clr">Clear</button>
+      </div>
+      <div id="gen-out">[ Train the model first, then generate here ]</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Weights — Save / Load</div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--text2);margin-bottom:8px;line-height:1.6">
+        Save trained weights to a JSON file.<br>Load them back to continue training or inference.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btn-save">⬇ Save Weights</button>
+        <label class="btn btn-secondary" style="cursor:pointer">⬆ Load Weights<input type="file" id="btn-load" accept=".json" style="display:none"></label>
+      </div>
+    </div>
+
+    <div class="panel flex1" style="min-height:0">
+      <div class="panel-title">Architecture Info</div>
+      <div id="arch-info" style="font-family:var(--font-mono);font-size:11px;color:var(--text2);line-height:2">
+        <div>Build a model to see details</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// UTILITIES
+// ============================================================
+const $ = id => document.getElementById(id);
+const log = (msg, type='info') => {
+  const w = $('log-wrap');
+  const d = document.createElement('div');
+  const ts = new Date().toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  d.className = `log-line ${type}`;
+  d.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  w.appendChild(d);
+  w.scrollTop = w.scrollHeight;
+  if(w.children.length > 200) w.removeChild(w.firstChild);
+};
+
+// ============================================================
+// TOKENIZER (BPE — Byte Pair Encoding, word-level with subword merges)
+// ============================================================
+class Tokenizer {
+  constructor(text) {
+    // Step 1: start with character vocab + special tokens
+    const UNK = '<unk>', PAD = '<pad>', BOS = '<bos>', EOS = '<eos>';
+    const specials = [PAD, UNK, BOS, EOS];
+
+    // Step 2: split text into words (preserve punctuation as separate tokens)
+    const rawWords = text.toLowerCase().match(/\b\w+\b|[^\w\s]/g) || [];
+
+    // Step 3: build initial character-level word vocab with end-of-word marker
+    // Each word is represented as a list of chars + </w>
+    const wordFreq = {};
+    for(const w of rawWords){
+      const key = [...w].join(' ') + ' </w>';
+      wordFreq[key] = (wordFreq[key]||0) + 1;
+    }
+
+    // Step 4: BPE merges — run up to 3000 merges or until vocab is stable
+    const MAX_MERGES = 3000;
+    const merges = [];
+
+    const getPairs = (vocab) => {
+      const pairs = {};
+      for(const [word, freq] of Object.entries(vocab)){
+        const syms = word.split(' ');
+        for(let i=0;i<syms.length-1;i++){
+          const p = syms[i]+'\x00'+syms[i+1];
+          pairs[p] = (pairs[p]||0) + freq;
+        }
+      }
+      return pairs;
+    };
+
+    let vocab = {...wordFreq};
+    for(let m=0;m<MAX_MERGES;m++){
+      const pairs = getPairs(vocab);
+      if(Object.keys(pairs).length === 0) break;
+      // Find most frequent pair
+      let best = null, bestCount = 0;
+      for(const [p,c] of Object.entries(pairs)){
+        if(c > bestCount){ bestCount=c; best=p; }
+      }
+      if(bestCount < 2) break; // no point merging pairs that appear only once
+      merges.push(best);
+      // Apply merge to vocab
+      const [a,b] = best.split('\x00');
+      const merged = a+b;
+      const newVocab = {};
+      const re = new RegExp('(?<![\\S])'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' '+b.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\S])', 'g');
+      for(const [word, freq] of Object.entries(vocab)){
+        const parts = word.split(' ');
+        const newParts = [];
+        let i=0;
+        while(i<parts.length){
+          if(i<parts.length-1 && parts[i]===a && parts[i+1]===b){
+            newParts.push(merged); i+=2;
+          } else {
+            newParts.push(parts[i]); i++;
+          }
+        }
+        newVocab[newParts.join(' ')] = freq;
+      }
+      vocab = newVocab;
+    }
+
+    // Step 5: collect all subword tokens from final vocab
+    const tokenSet = new Set(specials);
+    for(const word of Object.keys(vocab)){
+      for(const tok of word.split(' ')) tokenSet.add(tok);
+    }
+
+    this.t2i = {};
+    this.i2t = [];
+    for(const tok of tokenSet){
+      this.t2i[tok] = this.i2t.length;
+      this.i2t.push(tok);
+    }
+    this.size     = this.i2t.length;
+    this.merges   = merges;
+    this.UNK_ID   = this.t2i[UNK]||1;
+    this.BOS_ID   = this.t2i[BOS]||2;
+    this.EOS_ID   = this.t2i[EOS]||3;
+  }
+
+  // Apply BPE merges to a single word's characters
+  _applyBPE(chars) {
+    let parts = [...chars, '</w>'];
+    for(const merge of this.merges){
+      const [a,b] = merge.split('\x00');
+      const out = [];
+      let i=0;
+      while(i<parts.length){
+        if(i<parts.length-1 && parts[i]===a && parts[i+1]===b){
+          out.push(a+b); i+=2;
+        } else { out.push(parts[i]); i++; }
+      }
+      parts = out;
+    }
+    return parts;
+  }
+
+  encode(text) {
+    const words = text.toLowerCase().match(/\b\w+\b|[^\w\s]/g) || [];
+    const ids = [];
+    for(const w of words){
+      const subwords = this._applyBPE([...w]);
+      for(const sw of subwords){
+        ids.push(this.t2i[sw] ?? this.UNK_ID);
+      }
+    }
+    return ids;
+  }
+
+  decode(ids) {
+    return ids.map(i=>this.i2t[i]??'?').join(' ')
+      .replace(/ <\/w>/g,'')
+      .replace(/<\/w>/g,' ')
+      .replace(/ ([.,!?;:'])/g,'$1')
+      .replace(/\s+/g,' ').trim();
+  }
+}
+
+// ============================================================
+// TRANSFORMER MODEL
+// ============================================================
+class MiniGPT {
+  constructor(cfg) {
+    this.cfg = cfg;
+    this.vars = [];
+    this._causalMask = null;
+    this._build();
+  }
+
+  _v(t, name) {
+    const v = tf.variable(t, true, name);
+    this.vars.push(v);
+    return v;
+  }
+
+  _glorot(shape) {
+    const [fan_in, fan_out] = shape.length >= 2
+      ? [shape[shape.length-2], shape[shape.length-1]]
+      : [shape[0], shape[0]];
+    const lim = Math.sqrt(6/(fan_in+fan_out));
+    return tf.randomUniform(shape, -lim, lim, 'float32');
+  }
+
+  _build() {
+    const {vocabSize:V, dModel:D, numLayers:L, ffDim:F, seqLen:S} = this.cfg;
+
+    this.tokenEmb = this._v(this._glorot([V, D]), 'tokenEmb');
+    this.posEmb   = this._v(tf.randomNormal([S, D], 0, 0.02), 'posEmb');
+
+    this.layers = [];
+    for(let i=0; i<L; i++){
+      this.layers.push({
+        ln1g: this._v(tf.ones([D]),  `l${i}_ln1g`),
+        ln1b: this._v(tf.zeros([D]), `l${i}_ln1b`),
+        wq:   this._v(this._glorot([D,D]), `l${i}_wq`),
+        wk:   this._v(this._glorot([D,D]), `l${i}_wk`),
+        wv:   this._v(this._glorot([D,D]), `l${i}_wv`),
+        wo:   this._v(this._glorot([D,D]), `l${i}_wo`),
+        bq:   this._v(tf.zeros([D]), `l${i}_bq`),
+        bk:   this._v(tf.zeros([D]), `l${i}_bk`),
+        bv:   this._v(tf.zeros([D]), `l${i}_bv`),
+        bo:   this._v(tf.zeros([D]), `l${i}_bo`),
+        ln2g: this._v(tf.ones([D]),  `l${i}_ln2g`),
+        ln2b: this._v(tf.zeros([D]), `l${i}_ln2b`),
+        w1:   this._v(this._glorot([D,F]), `l${i}_w1`),
+        b1:   this._v(tf.zeros([F]), `l${i}_b1`),
+        w2:   this._v(this._glorot([F,D]), `l${i}_w2`),
+        b2:   this._v(tf.zeros([D]), `l${i}_b2`),
+      });
+    }
+    this.lnfg = this._v(tf.ones([D]),  'lnfg');
+    this.lnfb = this._v(tf.zeros([D]), 'lnfb');
+    this.wout = this._v(this._glorot([D, V]), 'wout');
+
+    // Build causal mask once
+    const S2 = this.cfg.seqLen;
+    const maskData = [];
+    for(let i=0;i<S2;i++) for(let j=0;j<S2;j++) maskData.push(j<=i?0:-1e9);
+    this._causalMask = tf.tensor2d(maskData,[S2,S2]);
+  }
+
+  _ln(x, g, b) {
+    return tf.tidy(()=>{
+      const mu  = x.mean(-1,true);
+      const sig = x.sub(mu).square().mean(-1,true).add(1e-5).sqrt();
+      return x.sub(mu).div(sig).mul(g).add(b);
+    });
+  }
+
+  _gelu(x) { return x.mul(tf.sigmoid(x.mul(1.702))); }
+
+  _attn(x, lay) {
+    return tf.tidy(()=>{
+      const {dModel:D, numHeads:H} = this.cfg;
+      const dH = D/H;
+      const [B,T] = [x.shape[0], x.shape[1]];
+      const flat = x.reshape([-1,D]);
+
+      const proj = (w,b) => flat.matMul(w).add(b).reshape([B,T,H,dH]).transpose([0,2,1,3]);
+      const Q = proj(lay.wq, lay.bq);
+      const K = proj(lay.wk, lay.bk);
+      const V = proj(lay.wv, lay.bv);
+
+      let sc = Q.matMul(K.transpose([0,1,3,2])).div(Math.sqrt(dH));
+      sc = sc.add(this._causalMask.slice([0,0],[T,T]).reshape([1,1,T,T]));
+
+      const w = tf.softmax(sc, -1);
+      const out = w.matMul(V).transpose([0,2,1,3]).reshape([B,T,D]);
+      return out.reshape([-1,D]).matMul(lay.wo).add(lay.bo).reshape([B,T,D]);
+    });
+  }
+
+  _ffn(x, lay) {
+    return tf.tidy(()=>{
+      const [B,T,D] = x.shape;
+      const h = this._gelu(x.reshape([-1,D]).matMul(lay.w1).add(lay.b1));
+      return h.matMul(lay.w2).add(lay.b2).reshape([B,T,D]);
+    });
+  }
+
+  forward(ids) {
+    // ids: int32 [B, T]
+    return tf.tidy(()=>{
+      const {dModel:D, seqLen:S} = this.cfg;
+      const [B,T] = [ids.shape[0], ids.shape[1]];
+
+      let x = tf.gather(this.tokenEmb, ids.flatten())
+               .reshape([B,T,D])
+               .add(this.posEmb.slice([0,0],[T,D]).reshape([1,T,D]));
+
+      for(const lay of this.layers){
+        x = x.add(this._attn(this._ln(x, lay.ln1g, lay.ln1b), lay));
+        x = x.add(this._ffn(this._ln(x, lay.ln2g, lay.ln2b), lay));
+      }
+
+      x = this._ln(x, this.lnfg, this.lnfb);
+      return x.reshape([-1,D]).matMul(this.wout).reshape([B,T,this.cfg.vocabSize]);
+    });
+  }
+
+  countParams() { return this.vars.reduce((s,v)=>s+v.size,0); }
+
+  dispose() {
+    this.vars.forEach(v=>v.dispose());
+    if(this._causalMask) this._causalMask.dispose();
+  }
+}
+
+// ============================================================
+// TRAINER
+// ============================================================
+class Trainer {
+  constructor(model, tokenizer, trainingText, hyperparams) {
+    this.model   = model;
+    this.tok     = tokenizer;
+    this.tokens  = tokenizer.encode(trainingText);
+    this.hp      = hyperparams;
+    this.opt     = tf.train.adam(hyperparams.lr, 0.9, 0.999, 1e-8);
+    this.step    = 0;
+    this.losses  = [];
+    this.running = false;
+    this.tStart  = null;
+    this.tokSeen = 0;
+  }
+
+  _getBatch() {
+    const {batchSize:B, seqLen:T} = this.hp;
+    const N = this.tokens.length;
+    const inpData = [], tgtData = [];
+    for(let b=0;b<B;b++){
+      const i = Math.floor(Math.random()*(N-T-1));
+      inpData.push(this.tokens.slice(i,i+T));
+      tgtData.push(this.tokens.slice(i+1,i+T+1));
+    }
+    return {
+      inp: tf.tensor2d(inpData,[B,T],'int32'),
+      tgt: tf.tensor2d(tgtData,[B,T],'int32'),
+    };
+  }
+
+  _getLR() {
+    const {lr, warmupSteps} = this.hp;
+    if(this.step < warmupSteps) return lr * (this.step+1) / warmupSteps;
+    return lr;
+  }
+
+  trainStep() {
+    const {inp,tgt} = this._getBatch();
+    const V = this.model.cfg.vocabSize;
+    const {batchSize:B, seqLen:T, gradClip} = this.hp;
+
+    // Update LR
+    const currentLR = this._getLR();
+    this.opt.learningRate = currentLR;
+
+    let lossVal;
+    const lossTensor = this.opt.minimize(()=>{
+      return tf.tidy(()=>{
+        const logits = this.model.forward(inp); // [B,T,V]
+        const lf = logits.reshape([-1,V]);
+        const oh = tf.oneHot(tgt.reshape([-1]),V).toFloat();
+        const ls = tf.logSoftmax(lf,-1);
+        return tf.neg(tf.mean(tf.sum(oh.mul(ls),-1)));
+      });
+    }, true, this.model.vars);
+
+    lossVal = lossTensor.dataSync()[0];
+    lossTensor.dispose();
+    inp.dispose();
+    tgt.dispose();
+
+    this.step++;
+    this.tokSeen += B * T;
+    this.losses.push(lossVal);
+    if(this.losses.length > 500) this.losses.shift();
+
+    return {loss: lossVal, lr: currentLR};
+  }
+
+  async runLoop(onStep) {
+    this.running = true;
+    this.tStart  = this.tStart || Date.now();
+    while(this.running){
+      const res = this.trainStep();
+      if(isNaN(res.loss)){ log('⚠ NaN loss — try lowering learning rate','warn'); this.running=false; break; }
+      onStep(res);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  stop(){ this.running=false; }
+
+  tps(){
+    if(!this.tStart) return 0;
+    const {batchSize:B,seqLen:T} = this.hp;
+    return Math.round(this.tokSeen / ((Date.now()-this.tStart)/1000));
+  }
+}
+
+// ============================================================
+// TEXT GENERATION
+// ============================================================
+async function generate(model, tokenizer, prompt, maxTokens, temperature) {
+  const S = model.cfg.seqLen;
+  let ids = prompt.length > 0 ? tokenizer.encode(prompt) : [Math.floor(Math.random()*tokenizer.size)];
+
+  for(let i=0;i<maxTokens;i++){
+    const ctx = ids.slice(-S);
+    const inp = tf.tensor2d([ctx],[1,ctx.length],'int32');
+    const logits = model.forward(inp); // [1,T,V]
+    const last = logits.slice([0,ctx.length-1,0],[1,1,-1]).reshape([-1]);
+    const sc   = last.div(Math.max(temperature,0.01));
+    const prob = tf.softmax(sc,-1);
+    const next = tf.multinomial(prob,1).dataSync()[0];
+    ids.push(next);
+    inp.dispose(); logits.dispose(); last.dispose(); sc.dispose(); prob.dispose();
+
+    if(i % 20 === 0) await new Promise(r=>setTimeout(r,0)); // yield
+  }
+  return tokenizer.decode(ids.slice(prompt.length ? prompt.length : 1));
+}
+
+// ============================================================
+// UI STATE
+// ============================================================
+let model    = null;
+let trainer  = null;
+let tokenizer= null;
+let lossChart= null;
+
+const PRESETS = {
+  micro:  {layers:2,  dModel:128, heads:4,  ffdim:512,  seqLen:128},
+  small:  {layers:6,  dModel:256, heads:8,  ffdim:1024, seqLen:256},
+  medium: {layers:8,  dModel:512, heads:8,  ffdim:2048, seqLen:256},
+  large:  {layers:12, dModel:512, heads:8,  ffdim:2048, seqLen:512},
+  xlarge: {layers:16, dModel:768, heads:12, ffdim:3072, seqLen:512},
+};
+
+function getConfig(){
+  return {
+    numLayers: parseInt($('cfg-layers').value),
+    dModel:    parseInt($('cfg-dmodel').value),
+    numHeads:  parseInt($('cfg-heads').value),
+    ffDim:     parseInt($('cfg-ffdim').value),
+    seqLen:    parseInt($('cfg-seqlen').value),
+  };
+}
+
+function estimateParams(cfg, vocabSize=100){
+  const {dModel:D, numLayers:L, ffDim:F, seqLen:S} = cfg;
+  const perLayer = 4*D*D + 4*D + 4*D + 2*D*F + D + F;
+  return vocabSize*D + S*D + L*perLayer + D*2 + D*vocabSize;
+}
+
+function fmtNum(n){
+  if(n>=1e9) return (n/1e9).toFixed(1)+'B';
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+  return n.toString();
+}
+
+function initChart(){
+  if(lossChart) lossChart.destroy();
+  const ctx = $('lossChart').getContext('2d');
+  lossChart = new Chart(ctx,{
+    type:'line',
+    data:{labels:[],datasets:[{
+      label:'Loss',
+      data:[],
+      borderColor:'#00e5ff',
+      backgroundColor:'rgba(0,229,255,.05)',
+      borderWidth:1.5,
+      pointRadius:0,
+      tension:0.3,
+      fill:true,
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{
+        x:{display:false},
+        y:{
+          grid:{color:'rgba(255,255,255,.04)'},
+          ticks:{color:'#4a6080',font:{family:'IBM Plex Mono',size:10}},
+        }
+      }
+    }
+  });
+}
+
+function updateChart(losses){
+  if(!lossChart) return;
+  const n = losses.length;
+  lossChart.data.labels = Array.from({length:n},(_,i)=>i);
+  lossChart.data.datasets[0].data = [...losses];
+  lossChart.update('none');
+}
+
+function buildModel(){
+  const text = $('train-data').value;
+  if(text.length < 500){ log('Need at least 500 characters of training text!','warn'); return; }
+
+  if(model){ model.dispose(); model=null; }
+  if(trainer){ trainer.stop(); trainer=null; }
+
+  log('Building BPE tokenizer (this may take a few seconds on large text)…','info');
+
+  // Yield to UI before heavy BPE work
+  setTimeout(()=>{
+    try {
+      tokenizer = new Tokenizer(text);
+      const tokens = tokenizer.encode(text);
+      log(`✓ BPE tokenizer built — vocab=${tokenizer.size} tokens, ${tokens.length.toLocaleString()} token ids from ${text.length.toLocaleString()} chars`,'ok');
+
+      const cfg = getConfig();
+      cfg.vocabSize = tokenizer.size;
+
+      if(cfg.dModel % cfg.numHeads !== 0){
+        log(`d_model (${cfg.dModel}) must be divisible by heads (${cfg.numHeads})!`,'err'); return;
+      }
+
+      // Warn if vocab too large for model (embedding table gets huge)
+      if(cfg.vocabSize > 8000){
+        log(`⚠ Vocab size ${cfg.vocabSize} is large — consider using more focused training text`,'warn');
+      }
+
+      log(`Building model: ${cfg.numLayers}L × d${cfg.dModel} × ${cfg.numHeads}H × ff${cfg.ffDim} | seqLen=${cfg.seqLen} | vocab=${cfg.vocabSize}`,'info');
+      model = new MiniGPT(cfg);
+      const nParams = model.countParams();
+
+      $('stat-params').textContent = fmtNum(nParams);
+      log(`✓ Model built — ${fmtNum(nParams)} parameters`,'ok');
+
+      $('arch-info').innerHTML = `
+        <div>Layers: <b style="color:var(--accent)">${cfg.numLayers}</b></div>
+        <div>d_model: <b style="color:var(--accent)">${cfg.dModel}</b></div>
+        <div>Heads: <b style="color:var(--accent)">${cfg.numHeads}</b></div>
+        <div>FF dim: <b style="color:var(--accent)">${cfg.ffDim}</b></div>
+        <div>Seq len: <b style="color:var(--accent)">${cfg.seqLen}</b></div>
+        <div>Vocab (BPE): <b style="color:var(--accent)">${cfg.vocabSize}</b></div>
+        <div>Train tokens: <b style="color:var(--accent)">${fmtNum(tokens.length)}</b></div>
+        <div>Params: <b style="color:var(--accent2)">${fmtNum(nParams)}</b></div>
+        <div>Size: <b style="color:var(--accent2)">${(nParams*4/1e6).toFixed(1)} MB</b></div>
+      `;
+
+      initChart();
+    } catch(e) {
+      log('Build error: ' + e.message, 'err');
+    }
+  }, 20);
+}
+
+function getHP(){
+  return {
+    lr:          Math.pow(10, parseFloat($('ctrl-lr').value)),
+    batchSize:   parseInt($('ctrl-bs').value),
+    warmupSteps: parseInt($('ctrl-warmup').value),
+    gradClip:    parseFloat($('ctrl-clip').value),
+    seqLen:      parseInt($('cfg-seqlen').value),
+  };
+}
+
+function startTraining(){
+  if(!model){ log('Build a model first!','warn'); return; }
+  const text = $('train-data').value;
+  if(!text){ log('Add training data first!','warn'); return; }
+  if(trainer && trainer.running){ trainer.stop(); return; }
+
+  const hp = getHP();
+  trainer = new Trainer(model, tokenizer, text, hp);
+  log(`Training started | lr=${hp.lr.toExponential(1)} | batch=${hp.batchSize} | warmup=${hp.warmupSteps}`,'ok');
+
+  $('btn-train').textContent = '⏹ STOP TRAINING';
+  $('btn-train').classList.add('running');
+
+  let lastUIUpdate = 0;
+  trainer.runLoop(({loss,lr})=>{
+    const s = trainer.step;
+    const now = Date.now();
+    if(now - lastUIUpdate > 150){
+      lastUIUpdate = now;
+      $('stat-step').textContent  = s;
+      $('stat-loss').textContent  = isNaN(loss)?'NaN':loss.toFixed(4);
+      $('stat-tps').textContent   = fmtNum(trainer.tps());
+      $('stat-lr').textContent    = lr.toExponential(1);
+      updateChart(trainer.losses);
+      const pct = Math.min((s/(s+100))*100, 99);
+      $('train-progress-bar').style.width = pct+'%';
+    }
+    if(s % 100 === 0) log(`Step ${s} | loss ${loss.toFixed(4)} | lr ${lr.toExponential(2)} | ${fmtNum(trainer.tps())} tok/s`,'info');
+  }).then(()=>{
+    $('btn-train').textContent = '▶ START TRAINING';
+    $('btn-train').classList.remove('running');
+    log('Training stopped.','warn');
+  });
+}
+
+async function doSteps(n){
+  if(!model){ log('Build a model first!','warn'); return; }
+  const text = $('train-data').value;
+  if(!text){ log('Add training data!','warn'); return; }
+  if(!trainer) trainer = new Trainer(model, tokenizer, text, getHP());
+  for(let i=0;i<n;i++){
+    const {loss,lr} = trainer.trainStep();
+    $('stat-step').textContent = trainer.step;
+    $('stat-loss').textContent = loss.toFixed(4);
+    $('stat-lr').textContent   = lr.toExponential(1);
+    updateChart(trainer.losses);
+    if(i%5===0) await new Promise(r=>setTimeout(r,0));
+  }
+  log(`${n} step${n>1?'s':''} | loss ${trainer.losses[trainer.losses.length-1].toFixed(4)}`,'ok');
+}
+
+async function doGenerate(){
+  if(!model){ log('Train a model first!','warn'); return; }
+  const prompt = $('gen-prompt').value;
+  const temp   = parseFloat($('gen-temp').value);
+  const maxTok = parseInt($('gen-len').value);
+  $('gen-out').textContent = '[ generating… ]';
+  log(`Generating ${maxTok} tokens (temp=${temp})…`,'info');
+  try{
+    const out = await generate(model, tokenizer, prompt, maxTok, temp);
+    $('gen-out').textContent = (prompt||'') + out;
+    log('Generation complete.','ok');
+  }catch(e){
+    log('Generation error: '+e.message,'err');
+    $('gen-out').textContent = 'Error: '+e.message;
+  }
+}
+
+async function saveWeights(){
+  if(!model){ log('No model to save!','warn'); return; }
+  log('Serializing weights…','info');
+  const data = {
+    config: model.cfg,
+    step:   trainer ? trainer.step : 0,
+    weights: {},
+  };
+  for(const v of model.vars){
+    data.weights[v.name] = Array.from(v.dataSync());
+  }
+  const blob = new Blob([JSON.stringify(data)],{type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `minigpt_step${data.step}.json`; a.click();
+  URL.revokeObjectURL(url);
+  log(`Saved ${fmtNum(model.countParams())} parameters to file.`,'ok');
+}
+
+function loadWeights(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const data = JSON.parse(e.target.result);
+      const cfg  = data.config;
+      log(`Loading checkpoint (step ${data.step}, vocab ${cfg.vocabSize})…`,'info');
+
+      if(model) model.dispose();
+      model = new MiniGPT(cfg);
+      tokenizer = tokenizer || { size:cfg.vocabSize, encode:()=>[], decode:()=>'' };
+
+      let loaded=0;
+      for(const v of model.vars){
+        if(data.weights[v.name]){
+          v.assign(tf.tensor(data.weights[v.name], v.shape));
+          loaded++;
+        }
+      }
+      $('stat-params').textContent = fmtNum(model.countParams());
+      initChart();
+      log(`✓ Loaded ${loaded} weight tensors.`,'ok');
+      if(trainer) trainer=null;
+    }catch(ex){
+      log('Load error: '+ex.message,'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ============================================================
+// EVENT LISTENERS
+// ============================================================
+document.querySelectorAll('.preset-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const p = PRESETS[btn.dataset.p];
+    $('cfg-layers').value = p.layers; $('val-layers').textContent = p.layers;
+    $('cfg-dmodel').value = p.dModel; $('val-dmodel').textContent = p.dModel;
+    $('cfg-heads').value  = p.heads;  $('val-heads').textContent  = p.heads;
+    $('cfg-ffdim').value  = p.ffdim;  $('val-ffdim').textContent  = p.ffdim;
+    $('cfg-seqlen').value = p.seqLen; $('val-seqlen').textContent = p.seqLen;
+    const est = estimateParams(p);
+    log(`Preset "${btn.dataset.p}" loaded — ~${fmtNum(est)} params estimated`,'info');
+  });
+});
+
+[['cfg-layers','val-layers'],['cfg-dmodel','val-dmodel'],['cfg-heads','val-heads'],
+ ['cfg-ffdim','val-ffdim'],['cfg-seqlen','val-seqlen']].forEach(([id,vid])=>{
+  $(id).addEventListener('input',()=>{
+    $(vid).textContent = $(id).value;
+    const cfg = getConfig();
+    const est = estimateParams(cfg);
+    $('stat-params').textContent = model ? fmtNum(model.countParams()) : fmtNum(est)+'~';
+  });
+});
+
+$('ctrl-lr').addEventListener('input',()=>{
+  const v = Math.pow(10,parseFloat($('ctrl-lr').value));
+  $('val-lr').textContent = v.toExponential(1);
+});
+$('ctrl-bs').addEventListener('input',()=>{ $('val-bs').textContent = $('ctrl-bs').value; });
+$('ctrl-warmup').addEventListener('input',()=>{ $('val-warmup').textContent = $('ctrl-warmup').value; });
+$('ctrl-clip').addEventListener('input',()=>{ $('val-clip').textContent = parseFloat($('ctrl-clip').value).toFixed(1); });
+$('gen-temp').addEventListener('input',()=>{ $('val-temp').textContent = parseFloat($('gen-temp').value).toFixed(2); });
+$('gen-len').addEventListener('input',()=>{ $('val-glen').textContent = $('gen-len').value; });
+
+$('train-data').addEventListener('input',()=>{
+  const t = $('train-data').value;
+  $('ds-chars').textContent  = t.length.toLocaleString();
+  // Estimate word tokens (roughly chars/5 for English)
+  const estTokens = Math.round(t.length / 5);
+  $('ds-tokens').textContent = '~'+estTokens.toLocaleString()+' (est)';
+  const wordCount = (t.match(/\b\w+\b/g)||[]).length;
+  $('ds-vocab').textContent  = '~'+(Math.min(wordCount, 8000)).toLocaleString()+' (est)';
+});
+
+$('btn-build').addEventListener('click', buildModel);
+$('btn-reset').addEventListener('click',()=>{
+  if(model){ model.dispose(); model=null; }
+  if(trainer){ trainer.stop(); trainer=null; }
+  initChart();
+  $('stat-params').textContent='0'; $('stat-step').textContent='0';
+  $('stat-loss').textContent='—'; $('stat-tps').textContent='0';
+  $('arch-info').innerHTML='<div>Build a model to see details</div>';
+  log('Model reset.','warn');
+});
+$('btn-train').addEventListener('click', startTraining);
+$('btn-step').addEventListener('click',  ()=>doSteps(1));
+$('btn-step10').addEventListener('click',()=>doSteps(10));
+$('btn-gen').addEventListener('click',               doGenerate);
+$('btn-gen-clr').addEventListener('click',()=>{ $('gen-out').textContent=''; });
+$('btn-save').addEventListener('click',  saveWeights);
+$('btn-load').addEventListener('change', e=>{ if(e.target.files[0]) loadWeights(e.target.files[0]); });
+
+// ============================================================
+// INIT
+// ============================================================
+(async()=>{
+  const fill = $('init-fill');
+  const msg  = $('init-msg');
+
+  fill.style.width='20%';
+  msg.textContent = 'Loading TensorFlow.js…';
+  await tf.ready();
+  fill.style.width='60%';
+
+  let backend = 'WebGL'; 
+  try{
+    if(navigator.gpu){
+      msg.textContent = 'Trying WebGPU…';
+      await tf.setBackend('webgpu');
+      backend = 'WebGPU';
+    }
+  }catch(e){
+    await tf.setBackend('webgl');
+  }
+  fill.style.width='90%';
+
+  const badge = $('backend-badge');
+  badge.textContent = backend;
+  badge.className = backend === 'WebGPU' ? 'webgpu' : 'webgl';
+
+  msg.textContent = 'Ready!';
+  fill.style.width='100%';
+  await new Promise(r=>setTimeout(r,400));
+
+  $('init-overlay').style.display='none';
+  $('header').style.display='flex';
+  $('main').style.display='grid';
+
+  initChart();
+  log('MiniGPT Trainer ready. Paste training text, pick a preset, then Build + Train!','ok');
+  log(`Backend: ${backend} | TF.js ${tf.version.tfjs}`,'info');
+  log('Tip: Start with SMALL preset and a few KB of text for fast feedback.','info');
+})();
+</script>
+</body>
+</html>
